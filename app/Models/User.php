@@ -2,71 +2,115 @@
 
 namespace App\Models;
 
-
-
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Defuse\Crypto\Crypto;
+use Defuse\Crypto\Key;
+use Carbon\Carbon;
 
-class User extends Authenticatable
+class TimeCapsule extends Model
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
-        'name',
-        'email',
-        'password',
-        'timezone'
+        'user_id',
+        'title',
+        'encrypted_content',
+        'content_type',
+        'unlock_date',
+        'is_unlocked',
+        'opened_at',
+        'reminder_sent',
+        'attachments',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
-
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'unlock_date' => 'datetime',
+            'opened_at' => 'datetime',
+            'is_unlocked' => 'boolean',
+            'reminder_sent' => 'boolean',
+            'attachments' => 'array',
         ];
     }
 
-    public function timeCapsules(): HasMany
+    public function user(): BelongsTo
     {
-        return $this->hasMany(TimeCapsule::class);
+        return $this->belongsTo(User::class);
     }
 
-    public function getUnblcokedCapsulesCount(): int
+    public function isUnlockable(): bool
     {
-        return $this->timeCapsules()
-            ->where('unlock_date', '<=', now())
-            ->where('is_unlocked', false)
-            ->count();
+        return $this->unlock_date <= now();
     }
 
-    public function pendingCapsulesCount(): int
+    public function getDaysUntilUnlock(): int
     {
-        return $this->timeCapsules()
-            ->where('unlock_date', '>', now())
-            ->count();
+        if ($this->isUnlockable()) {
+            return 0;
+        }
+
+        return now()->diffInDays($this->unlock_date);
+    }
+
+    public function getTimeUntilUnlock(): array
+    {
+        if ($this->isUnlockable()) {
+            return ['days' => 0, 'hours' => 0, 'minutes' => 0];
+        }
+
+        $now = now();
+        $unlock = $this->unlock_date;
+
+        return [
+            'days' => $now->diffInDays($unlock),
+            'hours' => $now->diffInHours($unlock) % 24,
+            'minutes' => $now->diffInMinutes($unlock) % 60,
+        ];
+    }
+
+    public function encryptContent(string $content): void
+    {
+        $key = Key::loadFromAsciiSafeString(config('app.encryption_key'));
+        $this->encrypted_content = Crypto::encrypt($content, $key);
+    }
+
+    public function decryptContent(): string
+    {
+        if (!$this->isUnlockable()) {
+            throw new \Exception('Time capsule is not yet unlockable');
+        }
+
+        $key = Key::loadFromAsciiSafeString(config('app.encryption_key'));
+        return Crypto::decrypt($this->encrypted_content, $key);
+    }
+
+    public function markAsOpened(): void
+    {
+        if ($this->isUnlockable() && !$this->is_unlocked) {
+            $this->update([
+                'is_unlocked' => true,
+                'opened_at' => now(),
+            ]);
+        }
+    }
+
+    public function scopeUnlockable($query)
+    {
+        return $query->where('unlock_date', '<=', now());
+    }
+
+    public function scopePending($query)
+    {
+        return $query->where('unlock_date', '>', now());
+    }
+
+    public function scopeNeedingReminder($query)
+    {
+        return $query->where('reminder_sent', false)
+            ->where('unlock_date', '<=', now()->addDays(7))
+            ->where('unlock_date', '>', now());
     }
 }

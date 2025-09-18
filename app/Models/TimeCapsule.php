@@ -8,9 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Defuse\Crypto\Crypto;
 use Defuse\Crypto\Key;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Crypt;
 
-class TimeCapsule extends Model{
+class TimeCapsule extends Model
+{
     use HasFactory;
 
     protected $fillable = [
@@ -22,7 +22,7 @@ class TimeCapsule extends Model{
         'is_unlocked',
         'opened_at',
         'reminder_sent',
-        'attachments'
+        'attachments',
     ];
 
     protected function casts(): array
@@ -32,7 +32,7 @@ class TimeCapsule extends Model{
             'opened_at' => 'datetime',
             'is_unlocked' => 'boolean',
             'reminder_sent' => 'boolean',
-            'attachments' => 'array'
+            'attachments' => 'array',
         ];
     }
 
@@ -58,7 +58,7 @@ class TimeCapsule extends Model{
     public function getTimeUntilUnlock(): array
     {
         if ($this->isUnlockable()) {
-            return ['days' => 0, 'minutes' => 0];
+            return ['days' => 0, 'hours' => 0, 'minutes' => 0];
         }
 
         $now = now();
@@ -73,26 +73,26 @@ class TimeCapsule extends Model{
 
     public function encryptContent(string $content): void
     {
-        $key = Key::loadFromAsciiSafeString(config('app.encription_key'));
+        $key = Key::loadFromAsciiSafeString(config('app.encryption_key'));
         $this->encrypted_content = Crypto::encrypt($content, $key);
     }
 
-    public function decryptContent(string $content): string
+    public function decryptContent(): string
     {
-        if ($this->isUnlockable()){
-            throw new \Exception("TimeCapsule is locked");
+        if (!$this->isUnlockable()) {
+            throw new \Exception('Time capsule is not yet unlockable');
         }
 
-        $key = Key::loadFromAsciiSafeString(config('app.encription_key'));
+        $key = Key::loadFromAsciiSafeString(config('app.encryption_key'));
         return Crypto::decrypt($this->encrypted_content, $key);
     }
 
     public function markAsOpened(): void
     {
-        if ($this->isUnlockable() && !$this->is_unlocked){
+        if ($this->isUnlockable() && !$this->is_unlocked) {
             $this->update([
                 'is_unlocked' => true,
-                'opened_at' => now()
+                'opened_at' => now(),
             ]);
         }
     }
@@ -104,7 +104,7 @@ class TimeCapsule extends Model{
 
     public function scopePending($query)
     {
-        return $query->where('unlock_date','>', now());
+        return $query->where('unlock_date', '>', now());
     }
 
     public function scopeNeedingReminder($query)
@@ -113,6 +113,4 @@ class TimeCapsule extends Model{
             ->where('unlock_date', '<=', now()->addDays(7))
             ->where('unlock_date', '>', now());
     }
-
 }
-
