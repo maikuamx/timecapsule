@@ -26,8 +26,8 @@ A beautiful Laravel application that allows users to create digital time capsule
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd digital-time-capsule
+git clone https://github.com/maikuamx/timecapsule.git
+cd time-machine
 ```
 
 2. Install PHP dependencies:
